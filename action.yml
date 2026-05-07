@@ -1,0 +1,318 @@
+name: Registry
+description: Run a local OCI registry in docker
+inputs:
+  image:
+    description: Registry image to run
+    required: true
+    type: string
+    default: registry:2
+  name:
+    description: Container name, only needs to be defined when multiple registries are run
+    required: true
+    type: string
+    default: reconcilerio-registry
+  secure:
+    description: When true, use https instead of http
+    required: true
+    type: bool
+    default: true
+  hostname:
+    description: Hostname to map to the registry
+    required: true
+    type: string
+    default: registry.local
+  port:
+    description: Port to listen on, defaults to 443 for secure and 80 for insecure
+    required: true
+    type: int
+    default: 0
+  tls-cert:
+    description: Path to the PEM encoded, TSL certificate file. Must be set if tls-key is set
+    type: string
+  tls-key:
+    description: Path to the PEM encoded, TSL key file. Must be set if tls-cert is set
+    type: string
+outputs:
+  hostname:
+    description: Registry hostname
+    value: ${{ steps.start.outputs.hostname }}
+  registry:
+    description: Registry coordinates, including port if needed 
+    value: ${{ steps.start.outputs.registry }}
+  tls-ca:
+    description: Path to certificate authority used by the registry
+    value: ${{ steps.generate-certs.outputs.ca }}
+  tls-ca-raw:
+    description: PEM encoded certificate authority used by the registry
+    value: ${{ steps.generate-certs.outputs.ca-raw }}
+runs:
+  using: "composite"
+  steps:
+    - name: Prep
+      run: |
+        set -o errexit
+        set -o nounset
+        set -o pipefail
+
+        code=0
+
+        if [[ "${{ inputs.secure }}" == "false" ]]; then
+          if [[ "${{ inputs.tls-cert }}" != "" ]]; then
+            echo "::warning title=tls-cert ignored::the tls-cert input is ignored for insecure registries"
+          fi
+          if [[ "${{ inputs.tls-key }}" != "" ]]; then
+            echo "::warning title=tls-key ignored::the tls-key input is ignored for insecure registries"
+          fi
+        else
+          if [[ "${{ inputs.tls-cert }}" == "" && "${{ inputs.tls-key }}" != "" ]]; then
+            echo "::error title=tls-cert missing::the tls-cert input is required when the tls-key input is set"
+            code=1
+          elif [[ "${{ inputs.tls-cert }}" != "" && "${{ inputs.tls-key }}" == "" ]]; then
+            echo "::error title=tls-key missing::the tls-key input is required when the tls-cert input is set"
+            code=1
+          fi
+        fi
+
+        if [[ "${{ inputs.port }}" -lt "0" || "${{ inputs.port }}" -gt "65535" ]]; then
+          echo "::error title=invalid port::the port input must be between 0 and 65535"
+          code=1
+        fi
+
+        exit ${code}
+      shell: bash
+    - name: Generate certs
+      id: generate-certs
+      if: inputs.secure && !inputs.tls-key
+      run: |
+        set -o errexit
+        set -o nounset
+        set -o pipefail
+
+        # TODO delete dir when job finishes
+        CERT_DIR=$(mktemp -d -t certs.XXXX)
+
+        echo "##[group]Install cfssl"
+          curl --fail -Lo ${CERT_DIR}/cfssl https://github.com/cloudflare/cfssl/releases/download/v1.6.5/cfssl_1.6.5_linux_amd64
+          curl --fail -Lo ${CERT_DIR}/cfssljson https://github.com/cloudflare/cfssl/releases/download/v1.6.5/cfssljson_1.6.5_linux_amd64
+          chmod +x ${CERT_DIR}/cfssl*
+        echo "##[endgroup]"
+
+        echo "##[group]Generate configs"
+          cat <<EOF > ${CERT_DIR}/config.json
+          {
+            "signing": {
+              "default": {
+                "expiry": "24h"
+              },
+              "profiles": {
+                "intermediate": {
+                  "usages": [
+                    "cert sign",
+                    "crl sign"
+                  ],
+                  "ca_constraint": {
+                    "is_ca": true,
+                    "max_path_len": 0,
+                    "max_path_len_zero": true
+                  },
+                  "expiry": "24h"
+                },
+                "server": {
+                  "usages": [
+                    "signing",
+                    "key encipherment",
+                    "server auth"
+                  ],
+                  "expiry": "24h"
+                },
+                "client": {
+                  "usages": [
+                    "signing",
+                    "digital signature",
+                    "key encipherment",
+                    "client auth"
+                  ],
+                  "expiry": "24h"
+                },
+                "peer": {
+                  "usages": [
+                    "signing",
+                    "digital signature",
+                    "key encipherment",
+                    "client auth",
+                    "server auth"
+                  ],
+                  "expiry": "24h"
+                }
+              }
+            }
+          }
+        EOF
+
+          cat <<EOF > ${CERT_DIR}/intermediate-csr.json
+          {
+            "CN": "Intermediate CA",
+            "hosts": [
+              ""
+            ],
+            "key": {
+              "algo": "rsa",
+              "size": 2048
+            },
+            "names": [
+              {
+                "O": "${{ github.repository }}",
+                "OU": "${{ github.workflow }}"
+              }
+            ]
+          }
+        EOF
+
+          cat <<EOF > ${CERT_DIR}/root-csr.json
+          {
+            "CN": "Root CA",
+            "hosts": [],
+            "key": {
+              "algo": "rsa",
+              "size": 2048
+            },
+            "names": [
+              {
+                "O": "${{ github.repository }}",
+                "OU": "${{ github.workflow }}"
+              }
+            ]
+          }
+        EOF
+
+          cat <<EOF > ${CERT_DIR}/server-csr.json
+          {
+            "key": {
+              "algo": "rsa",
+              "size": 2048
+            },
+            "names": [
+              {
+                "O": "${{ github.repository }}",
+                "OU": "${{ github.workflow }}"
+              }
+            ]
+          }
+        EOF
+        echo "##[endgroup]"
+
+        echo "##[group]Generate CA"
+          ${CERT_DIR}/cfssl gencert \
+            -initca ${CERT_DIR}/root-csr.json \
+            | ${CERT_DIR}/cfssljson \
+              -bare ${CERT_DIR}/root-ca
+          ${CERT_DIR}/cfssl gencert \
+            -ca ${CERT_DIR}/root-ca.pem \
+            -ca-key ${CERT_DIR}/root-ca-key.pem \
+            -config="${CERT_DIR}/config.json" \
+            -profile="intermediate" \
+            ${CERT_DIR}/intermediate-csr.json \
+            | ${CERT_DIR}/cfssljson \
+              -bare ${CERT_DIR}/signing-ca
+          cat ${CERT_DIR}/signing-ca.pem ${CERT_DIR}/root-ca.pem > ${CERT_DIR}/ca.pem
+        echo "##[endgroup]"
+
+        echo "##[group]Install CA"
+          # TODO handle non-ubuntu/debian systems
+          # https://ubuntu.com/server/docs/security-trust-store
+          sudo apt-get install -y ca-certificates
+          sudo cp ${CERT_DIR}/ca.pem /usr/local/share/ca-certificates/${{ inputs.name }}-ca.crt
+          sudo update-ca-certificates
+        echo "##[endgroup]"
+
+        echo "##[group]Generate cert"
+          ${CERT_DIR}/cfssl gencert \
+            -ca ${CERT_DIR}/signing-ca.pem \
+            -ca-key ${CERT_DIR}/signing-ca-key.pem \
+            -config="${CERT_DIR}/config.json" \
+            -profile="server" \
+            -hostname="${{ inputs.hostname }},${{ inputs.name }}" \
+            ${CERT_DIR}/server-csr.json \
+            | ${CERT_DIR}/cfssljson \
+              -bare ${CERT_DIR}/server
+        echo "##[endgroup]"
+
+        echo "##[group]Set outputs"
+          echo "tls-ca=${CERT_DIR}/ca.pem" | tee -a "$GITHUB_OUTPUT"
+          echo 'tls-ca-raw<<EOF' | tee -a "$GITHUB_OUTPUT"
+            cat ${CERT_DIR}/ca.pem | tee -a "$GITHUB_OUTPUT"
+          echo 'EOF' | tee -a "$GITHUB_OUTPUT"
+          echo "tls-cert=${CERT_DIR}/server.pem" >> $GITHUB_OUTPUT
+          echo "tls-key=${CERT_DIR}/server-key.pem" >> $GITHUB_OUTPUT
+        echo "##[endgroup]"
+
+        echo "##[group]Certificate authority"
+          ${CERT_DIR}/cfssl certinfo -cert ${CERT_DIR}/signing-ca.pem
+        echo "##[endgroup]"
+        echo "##[group]Certificate"
+          ${CERT_DIR}/cfssl certinfo -cert ${CERT_DIR}/server.pem
+        echo "##[endgroup]"
+      shell: bash
+
+    - name: Start registry
+      id: start
+      run: |
+        set -o errexit
+        set -o nounset
+        set -o pipefail
+
+        echo "hostname=${{ inputs.hostname }}" >> $GITHUB_OUTPUT
+
+        if [[ "${{ inputs.secure }}" == "true" ]]; then
+          # run secure
+
+          # TODO delete dir when job finishes
+          CERT_DIR=$(mktemp -d -t certs.XXXX)
+          if [[ "${{ inputs.tls-cert }}" == "" ]]; then
+            cp ${{ steps.generate-certs.outputs.tls-ca }} ${CERT_DIR}/ca.pem
+            cp ${{ steps.generate-certs.outputs.tls-cert }} ${CERT_DIR}/server.pem
+            cp ${{ steps.generate-certs.outputs.tls-key }} ${CERT_DIR}/server-key.pem
+          fi
+
+          port="${{ inputs.port }}"
+          if [[ "${port}" == "0" ]]; then
+            port="443"
+            echo "registry=${{ inputs.hostname }}" >> $GITHUB_OUTPUT
+          else
+            echo "registry=${{ inputs.hostname }}:${port}" >> $GITHUB_OUTPUT
+          fi
+
+          # TODO delete container when job finishes
+          docker run -d \
+            --restart=always \
+            --name ${{ inputs.name }} \
+            -v ${CERT_DIR}:/certs \
+            -e REGISTRY_HTTP_ADDR=0.0.0.0:${port} \
+            -e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/server.pem \
+            -e REGISTRY_HTTP_TLS_KEY=/certs/server-key.pem \
+            -p "${port}:${port}" \
+            ${{ inputs.image }}
+
+        else
+          # run insecure
+
+          port="${{ inputs.port }}"
+          if [[ "${port}" == "0" ]]; then
+            port="80"
+            echo "registry=${{ inputs.hostname }}" >> $GITHUB_OUTPUT
+          else
+            echo "registry=${{ inputs.hostname }}:${port}" >> $GITHUB_OUTPUT
+          fi
+
+          # TODO delete container when job finishes
+          docker run -d \
+            --restart=always \
+            --name ${{ inputs.name }} \
+            -e REGISTRY_HTTP_ADDR=0.0.0.0:${port} \
+            -p "${port}:${port}" \
+            ${{ inputs.image }}
+
+        fi
+
+        echo "$(hostname -I | cut -d' ' -f1) ${{ inputs.hostname }}" | sudo tee -a /etc/hosts
+      shell: bash
