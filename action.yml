@@ -96,7 +96,7 @@ runs:
 
         version="1.6.5"
         os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-        arch="$(uname -m)"
+        arch="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
 
         echo "##[group]Install cfssl"
           echo "Downloading https://github.com/cloudflare/cfssl/releases/download/v${version}/cfssl_${version}_${os}_${arch}"
