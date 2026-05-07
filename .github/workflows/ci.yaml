@@ -55,3 +55,15 @@ jobs:
 
         crane copy ubuntu ${{ steps.registry.outputs.registry }}/tests/ubuntu
         crane digest ${{ steps.registry.outputs.registry }}/tests/ubuntu
+    - name: Show registry outputs
+      run: |
+        set -o errexit
+        set -o nounset
+        set -o pipefail
+
+        echo "hostname: ${{ steps.registry.outputs.hostname }}"
+        echo "registry: ${{ steps.registry.outputs.registry }}"
+        echo "tls-ca: ${{ steps.registry.outputs.tls-ca }}"
+        echo "tls-ca-raw: ${{ steps.registry.outputs.tls-ca-raw }}"
+        echo ""
+        echo "${{ toJSON(steps.registry.outputs) }}"

@@ -44,10 +44,10 @@ outputs:
     value: ${{ steps.start.outputs.registry }}
   tls-ca:
     description: Path to certificate authority used by the registry
-    value: ${{ steps.generate-certs.outputs.ca }}
+    value: ${{ steps.generate-certs.outputs.tls-ca }}
   tls-ca-raw:
     description: PEM encoded certificate authority used by the registry
-    value: ${{ steps.generate-certs.outputs.ca-raw }}
+    value: ${{ steps.generate-certs.outputs.tls-ca-raw }}
 runs:
   using: "composite"
   steps:
