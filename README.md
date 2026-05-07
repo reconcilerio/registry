@@ -1,10 +1,11 @@
 # registry action  <!-- omit in toc -->
 
-[![ci](https://github.com/reconcilerio/registry/actions/workflows/ci.yml/badge.svg)](https://github.com/reconcilerio/registry/actions/workflows/ci.yml)
+[![CI](https://github.com/reconcilerio/registry/actions/workflows/ci.yaml/badge.svg)](https://github.com/reconcilerio/registry/actions/workflows/ci.yaml)
 
 Starts a secure, trusted OCI registry for a GitHub Actions workflow. The nuscenes of creating and trusting certificates, or allowing clients to run insecurely is avoided.
 
 - [Usage](#usage)
+  - [Outputs](#outputs)
 - [Community](#community)
   - [Code of Conduct](#code-of-conduct)
   - [Communication](#communication)
@@ -18,7 +19,7 @@ See [action.yml](action.yml)
 
 <!-- start usage -->
 ```yaml
-- uses: actions/setup-node@v6
+- uses: reconcilerio/registry@v1
   with:
     # Optional hostname.
     # Host the registry will be exposed at. The registry is part of image references hosted on the registry.
@@ -68,6 +69,13 @@ steps:
 All input properties are optional. By default, the `registry:2` image is run on the local Docker daemon with port 443 mapped to it. A TLS certificate is generated and used on the registry, with the ca installed into the operating system so that local tools will trust the registry.
 
 The registry is available at `registry.local`. An `/etc/hosts` entry is added to facilitate local access.
+
+### Outputs
+
+- **`registry`** the registry name, including the port if necessary. Images pushed or pulled from the registry should use this path. Defaults to `registry.local`.
+- **`hostname`** the hostname for the registry, never including the port. Useful if needing to setup DNS on a different host. The generated certificate is valid for requests to this host. Defaults to `registry.local`.
+- **`tls-ca`** path to generated CA certificate. Undefined if running insecure or a certificate was provided.
+- **`tls-ca-raw`** PEM encoded value of the CA certificate. Undefined if running insecure or a certificate was provided.
 
 ## Community
 
