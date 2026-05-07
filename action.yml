@@ -99,7 +99,9 @@ runs:
         arch="$(uname -m)"
 
         echo "##[group]Install cfssl"
+          echo "Downloading https://github.com/cloudflare/cfssl/releases/download/v${version}/cfssl_${version}_${os}_${arch}"
           curl --fail -Lo ${CERT_DIR}/cfssl "https://github.com/cloudflare/cfssl/releases/download/v${version}/cfssl_${version}_${os}_${arch}"
+          echo "Downloading https://github.com/cloudflare/cfssl/releases/download/v${version}/cfssljson_${version}_${os}_${arch}"
           curl --fail -Lo ${CERT_DIR}/cfssljson "https://github.com/cloudflare/cfssl/releases/download/v${version}/cfssljson_${version}_${os}_${arch}"
           chmod +x ${CERT_DIR}/cfssl*
         echo "##[endgroup]"
