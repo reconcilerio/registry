@@ -1,0 +1,57 @@
+name: Copy registry images
+on:
+  schedule:
+  - cron: '45 5 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+    - name: Install crane
+      run: |
+        set -o errexit
+        set -o nounset
+        set -o pipefail
+        
+        version=$(curl -s https://api.github.com/repos/google/go-containerregistry/releases/latest | jq -r .tag_name)
+        os="$(uname)"
+        arch="$(arch)"
+        if [[ "${arch}" == "aarch64" ]]; then
+            arch=arm64
+        fi
+
+        url="https://github.com/google/go-containerregistry/releases/download/${version}/go-containerregistry_${os}_${arch}.tar.gz"
+
+        echo "Downloading ${url}"
+        curl --fail -L "${url}" \
+            | tar -xzf - crane
+        mv crane /usr/local/bin
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Copy images
+      run: |
+        set -o errexit
+        set -o nounset
+        set -o pipefail
+
+        for tag in $(crane ls docker.io/registry | tac); do
+          mediatype="$(crane manifest "docker.io/registry:${tag}" | jq -r .mediaType)"
+          case "${mediatype}" in
+            "application/vnd.oci.image.index.v1+json" | "application/vnd.oci.image.manifest.v1+json" | "application/vnd.docker.distribution.manifest.list.v2+json" | "application/vnd.docker.distribution.manifest.v2+json")
+              echo "##[group]Copy docker.io/registry:${tag}"
+                crane copy "docker.io/registry:${tag}" "ghcr.io/${{ github.repository }}/docker.io/registry:${tag}"
+              echo "##[endgroup]"
+              ;;
+            *)
+              echo "Skip docker.io/registry:${tag}: ignoring media type ${mediatype}"
+              ;;
+            esac
+        done
