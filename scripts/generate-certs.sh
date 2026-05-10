@@ -168,7 +168,7 @@ echo "##[group]Install CA"
 echo "##[endgroup]"
 
 
-mv "${work_dir}/ca.pem" "${cert_dir}/ca.pem"
+mv "${work_dir}/signing-ca.pem" "${cert_dir}/ca.pem"
 mv "${work_dir}/server.pem" "${cert_dir}/server.pem"
 mv "${work_dir}/server-key.pem" "${cert_dir}/server-key.pem"
 rm -rf ${work_dir}
