@@ -86,13 +86,13 @@ runs:
     - name: Generate certs
       id: generate-certs
       if: inputs.secure && !inputs.tls-key
-      uses: ./.github/actions/with-post-step
+      uses: reconcilerio/post-step-action@v1
       with:
         main: ${{ github.action_path }}/scripts/generate-certs.sh "${{ inputs.name }}" "${{ inputs.hostname }}"
         post: ${{ github.action_path }}/scripts/cleanup-certs.sh "${{ inputs.name }}"
     - name: Run registry
       id: run
-      uses: ./.github/actions/with-post-step
+      uses: reconcilerio/post-step-action@v1
       with:
         main: ${{ github.action_path }}/scripts/start-registry.sh "${{ inputs.name }}" "${{ inputs.hostname }}" "${{ inputs.port }}" "${{ inputs.image }}" "${{ inputs.secure }}" "${{ inputs.tls-cert }}" "${{ inputs.tls-key }}"
         post: ${{ github.action_path }}/scripts/stop-registry.sh "${{ inputs.name }}" "${{ inputs.hostname }}"
